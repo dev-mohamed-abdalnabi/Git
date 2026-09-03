@@ -110,7 +110,7 @@ export default function FileViewScreen({ route, navigation }) {
       <SafeAreaView style={styles.safe}>
         <View style={{ padding: 20 }}>
           <Text style={styles.info}>ده ملف باينري (صورة/فيديو/... إلخ) - مينفعش يتعرض كنص.</Text>
-          <Btn title="حذف الملف" variant="danger" onPress={onDelete} />
+          <Btn title="حذف الملف" icon="trash-outline" variant="danger" onPress={onDelete} />
         </View>
       </SafeAreaView>
     );
@@ -126,8 +126,8 @@ export default function FileViewScreen({ route, navigation }) {
           multiline
           textAlignVertical="top"
         />
-        <Btn title={saving ? "جاري الحفظ..." : "حفظ التعديلات"} onPress={onSave} disabled={saving} />
-        <Btn title="حذف الملف" variant="danger" onPress={onDelete} />
+        <Btn title={saving ? "جاري الحفظ..." : "حفظ التعديلات"} icon="save-outline" loading={saving} onPress={onSave} />
+        <Btn title="حذف الملف" icon="trash-outline" variant="danger" onPress={onDelete} />
       </ScrollView>
     </SafeAreaView>
   );

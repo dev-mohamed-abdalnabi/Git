@@ -7,8 +7,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  TextInput,
+  RefreshControl,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { loadSettings } from "../services/storage";
 import {
   listContents,
@@ -16,7 +20,8 @@ import {
   deleteFolder,
   createBranch,
 } from "../services/githubApi";
-import Btn from "../components/Btn";
+import { getFileIcon, FOLDER_ICON } from "../utils/fileIcons";
+import Breadcrumb from "../components/Breadcrumb";
 
 export default function ExplorerScreen({ route, navigation }) {
   const { owner, repo, branch: initialBranch, branches, path: initialPath } = route.params;
@@ -24,31 +29,37 @@ export default function ExplorerScreen({ route, navigation }) {
   const [path, setPath] = useState(initialPath || "");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [token, setToken] = useState("");
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh) => {
+    isRefresh ? setRefreshing(true) : setLoading(true);
     try {
       const s = await loadSettings();
       setToken(s.token);
-      if (path === "" ) {
-        const data = await listContents(s.token, owner, repo, "", branch);
-        setItems(sortItems(data));
-      } else {
-        const data = await listContents(s.token, owner, repo, path, branch);
-        setItems(sortItems(data));
-      }
+      const data = await listContents(s.token, owner, repo, path, branch);
+      setItems(sortItems(data));
     } catch (e) {
       Alert.alert("خطأ", e.message);
       setItems([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [owner, repo, branch, path]);
 
   useEffect(() => {
-    navigation.setOptions({ title: `${repo} — ${branch} — /${path}` });
-    load();
+    navigation.setOptions({
+      headerTitle: repo,
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setSearchOpen((v) => !v)} style={{ padding: 6 }}>
+          <Ionicons name="search" size={20} color="#c9d1d9" />
+        </TouchableOpacity>
+      ),
+    });
+    load(false);
   }, [load]);
 
   const sortItems = (data) =>
@@ -57,15 +68,13 @@ export default function ExplorerScreen({ route, navigation }) {
       return a.type === "dir" ? -1 : 1;
     });
 
+  const filtered = query
+    ? items.filter((i) => i.name.toLowerCase().includes(query.toLowerCase()))
+    : items;
+
   const openItem = (item) => {
     if (item.type === "dir") {
-      navigation.push("Explorer", {
-        owner,
-        repo,
-        branch,
-        branches,
-        path: item.path,
-      });
+      navigation.push("Explorer", { owner, repo, branch, branches, path: item.path });
     } else {
       navigation.navigate("FileView", { owner, repo, branch, path: item.path, sha: item.sha });
     }
@@ -84,7 +93,7 @@ export default function ExplorerScreen({ route, navigation }) {
             } else {
               await deleteFile(token, owner, repo, item.path, `Delete ${item.path}`, branch, item.sha);
             }
-            load();
+            load(false);
           } catch (e) {
             Alert.alert("خطأ", e.message);
           }
@@ -102,59 +111,91 @@ export default function ExplorerScreen({ route, navigation }) {
     );
   };
 
-  const onNewBranch = () => {
-    Alert.prompt?.(
-      "اسم الفرع الجديد",
-      `هيتعمل من ${branch}`,
-      async (name) => {
-        if (!name) return;
-        try {
-          await createBranch(token, owner, repo, branch, name);
-          Alert.alert("تم", `اتعمل فرع ${name}`);
-        } catch (e) {
-          Alert.alert("خطأ", e.message);
-        }
-      }
-    );
+  const onNavigateBreadcrumb = (target) => {
+    if (target === path) return;
+    navigation.push("Explorer", { owner, repo, branch, branches, path: target });
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["bottom", "left", "right"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={onSwitchBranch} style={styles.branchPill}>
-          <Text style={styles.branchText}>🌿 {branch}</Text>
+          <Ionicons name="git-branch-outline" size={14} color="#58a6ff" />
+          <Text style={styles.branchText}>{branch}</Text>
+          {branches && branches.length > 1 && (
+            <Ionicons name="chevron-down" size={12} color="#58a6ff" style={{ marginLeft: 2 }} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.uploadBtn}
           onPress={() => navigation.navigate("Upload", { owner, repo, branch, path })}
         >
-          <Text style={styles.uploadText}>⬆️ رفع هنا</Text>
+          <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+          <Text style={styles.uploadText}>رفع هنا</Text>
         </TouchableOpacity>
       </View>
 
+      <Breadcrumb repo={repo} path={path} onNavigate={onNavigateBreadcrumb} />
+
+      {searchOpen && (
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={16} color="#8b949e" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="دور في الفولدر ده..."
+            placeholderTextColor="#6e7681"
+            value={query}
+            onChangeText={setQuery}
+            autoFocus
+          />
+          {query ? (
+            <TouchableOpacity onPress={() => setQuery("")}>
+              <Ionicons name="close-circle" size={16} color="#6e7681" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )}
+
       {loading ? (
-        <ActivityIndicator color="#fff" style={{ marginTop: 40 }} />
+        <ActivityIndicator color="#58a6ff" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
-          data={items}
+          data={filtered}
           keyExtractor={(item) => item.sha + item.path}
           contentContainerStyle={{ padding: 12 }}
-          ListEmptyComponent={<Text style={styles.empty}>الفولدر ده فاضي</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <TouchableOpacity style={{ flex: 1 }} onPress={() => openItem(item)}>
-                <Text style={styles.itemText}>
-                  {item.type === "dir" ? "📁" : "📄"} {item.name}
-                </Text>
-                {item.type === "file" && (
-                  <Text style={styles.itemMeta}>{(item.size / 1024).toFixed(1)} KB</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onDelete(item)} style={styles.deleteBtn}>
-                <Text style={{ color: "#f85149" }}>حذف</Text>
-              </TouchableOpacity>
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor="#58a6ff" />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Ionicons name="folder-open-outline" size={40} color="#30363d" />
+              <Text style={styles.empty}>{query ? "مفيش نتايج" : "الفولدر ده فاضي"}</Text>
             </View>
-          )}
+          }
+          renderItem={({ item }) => {
+            const meta = item.type === "dir" ? FOLDER_ICON : getFileIcon(item.name);
+            return (
+              <View style={styles.row}>
+                <TouchableOpacity style={styles.rowMain} onPress={() => openItem(item)} activeOpacity={0.7}>
+                  <View style={[styles.iconWrap, { backgroundColor: meta.color + "22" }]}>
+                    <Ionicons name={meta.icon} size={19} color={meta.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemText} numberOfLines={1}>{item.name}</Text>
+                    {item.type === "file" && (
+                      <Text style={styles.itemMeta}>{(item.size / 1024).toFixed(1)} KB</Text>
+                    )}
+                  </View>
+                  {item.type === "dir" && (
+                    <Ionicons name="chevron-forward" size={16} color="#484f58" />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => onDelete(item)} style={styles.deleteBtn}>
+                  <Ionicons name="trash-outline" size={17} color="#f85149" />
+                </TouchableOpacity>
+              </View>
+            );
+          }}
         />
       )}
     </SafeAreaView>
@@ -171,33 +212,61 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   branchPill: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#161b22",
     borderRadius: 20,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderWidth: 1,
     borderColor: "#30363d",
+    gap: 6,
   },
-  branchText: { color: "#58a6ff", fontSize: 13 },
+  branchText: { color: "#58a6ff", fontSize: 13, fontWeight: "500" },
   uploadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#238636",
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    gap: 6,
   },
-  uploadText: { color: "#fff", fontWeight: "600" },
+  uploadText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#161b22",
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "ios" ? 10 : 4,
+    borderWidth: 1,
+    borderColor: "#30363d",
+    gap: 8,
+  },
+  searchInput: { flex: 1, color: "#fff", fontSize: 14 },
   row: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#161b22",
-    padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: "#21262d",
   },
-  itemText: { color: "#fff", fontSize: 15 },
+  rowMain: { flex: 1, flexDirection: "row", alignItems: "center", padding: 12, gap: 12 },
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemText: { color: "#fff", fontSize: 15, fontWeight: "500" },
   itemMeta: { color: "#8b949e", fontSize: 11, marginTop: 2 },
-  deleteBtn: { paddingHorizontal: 10, paddingVertical: 6 },
-  empty: { color: "#8b949e", textAlign: "center", marginTop: 40 },
+  deleteBtn: { paddingHorizontal: 14, paddingVertical: 12 },
+  emptyWrap: { alignItems: "center", marginTop: 60, gap: 10 },
+  empty: { color: "#8b949e", fontSize: 14 },
 });
