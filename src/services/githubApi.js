@@ -171,45 +171,53 @@ export async function commitMultipleFiles(
   message,
   onProgress
 ) {
-  const { commitSha, treeSha } = await getBranchHeadTree(token, owner, repo, branch);
+  const MAX_RETRIES = 3;
+  let lastError;
 
-  const blobs = [];
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    const blob = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/blobs`, token, {
-      method: "POST",
-      body: JSON.stringify({ content: f.base64, encoding: "base64" }),
-    });
-    blobs.push({
-      path: f.path,
-      mode: "100644",
-      type: "blob",
-      sha: blob.sha,
-    });
-    if (onProgress) onProgress(i + 1, files.length);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const { commitSha, treeSha } = await getBranchHeadTree(token, owner, repo, branch);
+
+      const blobs = [];
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const blob = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/blobs`, token, {
+          method: "POST",
+          body: JSON.stringify({ content: f.base64, encoding: "base64" }),
+        });
+        blobs.push({ path: f.path, mode: "100644", type: "blob", sha: blob.sha });
+        if (onProgress) onProgress(i + 1, files.length);
+      }
+
+      const newTree = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/trees`, token, {
+        method: "POST",
+        body: JSON.stringify({ base_tree: treeSha, tree: blobs }),
+      });
+
+      const newCommit = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/commits`, token, {
+        method: "POST",
+        body: JSON.stringify({ message, tree: newTree.sha, parents: [commitSha] }),
+      });
+
+      // لو حد تاني (أو رفعة سابقة) غيّر الفرع في نفس اللحظة، PATCH هترفض بـ 422
+      // "Update is not a fast forward" - في الحالة دي بنعيد الخطوات كلها من جديد
+      // على أحدث نسخة من الفرع بدل ما نفشل خالص
+      await ghFetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ sha: newCommit.sha }),
+      });
+
+      return newCommit;
+    } catch (e) {
+      lastError = e;
+      const isConflict = e.message.includes("422") || e.message.includes("fast forward");
+      if (isConflict && attempt < MAX_RETRIES) {
+        if (onProgress) onProgress(0, files.length);
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+        continue;
+      }
+      throw e;
+    }
   }
-
-  const newTree = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/trees`, token, {
-    method: "POST",
-    body: JSON.stringify({
-      base_tree: treeSha,
-      tree: blobs,
-    }),
-  });
-
-  const newCommit = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/commits`, token, {
-    method: "POST",
-    body: JSON.stringify({
-      message,
-      tree: newTree.sha,
-      parents: [commitSha],
-    }),
-  });
-
-  await ghFetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
-    method: "PATCH",
-    body: JSON.stringify({ sha: newCommit.sha }),
-  });
-
-  return newCommit;
+  throw lastError;
 }
