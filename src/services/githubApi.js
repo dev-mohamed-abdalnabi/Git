@@ -3,6 +3,14 @@
 
 const BASE = "https://api.github.com";
 
+function encodePath(path = "") {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
 function authHeaders(token) {
   return {
     Authorization: `token ${token}`,
@@ -60,7 +68,7 @@ export async function createBranch(token, owner, repo, baseBranch, newBranch) {
 export async function listContents(token, owner, repo, path = "", branch) {
   const q = branch ? `?ref=${encodeURIComponent(branch)}` : "";
   const data = await ghFetch(
-    `${BASE}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}${q}`,
+    `${BASE}/repos/${owner}/${repo}/contents/${encodePath(path)}${q}`,
     token
   );
   // data can be array (dir) or object (single file)
@@ -70,7 +78,7 @@ export async function listContents(token, owner, repo, path = "", branch) {
 export async function getFileRaw(token, owner, repo, path, branch) {
   const q = branch ? `?ref=${encodeURIComponent(branch)}` : "";
   const data = await ghFetch(
-    `${BASE}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}${q}`,
+    `${BASE}/repos/${owner}/${repo}/contents/${encodePath(path)}${q}`,
     token
   );
   return data; // includes .content (base64) and .sha
@@ -88,7 +96,7 @@ export async function upsertSingleFile(
   branch,
   existingSha
 ) {
-  return ghFetch(`${BASE}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, token, {
+  return ghFetch(`${BASE}/repos/${owner}/${repo}/contents/${encodePath(path)}`, token, {
     method: "PUT",
     body: JSON.stringify({
       message,
@@ -100,9 +108,18 @@ export async function upsertSingleFile(
 }
 
 export async function deleteFile(token, owner, repo, path, message, branch, sha) {
-  return ghFetch(`${BASE}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, token, {
+  // SHA الموجود في شاشة التصفح قديم إذا تغيّر الملف منذ فتح الشاشة.
+  // جلب النسخة الحالية يمنع خطأ 409/422 أثناء الحذف.
+  let currentSha = sha;
+  try {
+    const latest = await getFileRaw(token, owner, repo, path, branch);
+    currentSha = latest.sha;
+  } catch (e) {
+    // نستخدم SHA المرسل كحل أخير، وستظهر رسالة GitHub الأصلية إن كان غير صالح.
+  }
+  return ghFetch(`${BASE}/repos/${owner}/${repo}/contents/${encodePath(path)}`, token, {
     method: "DELETE",
-    body: JSON.stringify({ message, branch, sha }),
+    body: JSON.stringify({ message, branch, sha: currentSha }),
   });
 }
 
@@ -141,7 +158,7 @@ export async function deleteFolder(token, owner, repo, folderPath, message, bran
 
   await ghFetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
     method: "PATCH",
-    body: JSON.stringify({ sha: newCommit.sha }),
+    body: JSON.stringify({ sha: newCommit.sha, force: true }),
   });
 
   return newCommit;
@@ -171,7 +188,7 @@ export async function commitMultipleFiles(
   message,
   onProgress
 ) {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
   let lastError;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -204,17 +221,27 @@ export async function commitMultipleFiles(
       // على أحدث نسخة من الفرع بدل ما نفشل خالص
       await ghFetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ sha: newCommit.sha }),
+        body: JSON.stringify({ sha: newCommit.sha, force: true }),
       });
 
       return newCommit;
     } catch (e) {
       lastError = e;
-      const isConflict = e.message.includes("422") || e.message.includes("fast forward");
+      const isConflict =
+        e.message.includes("422") ||
+        e.message.toLowerCase().includes("fast forward") ||
+        e.message.toLowerCase().includes("update reference failed");
       if (isConflict && attempt < MAX_RETRIES) {
         if (onProgress) onProgress(0, files.length);
-        await new Promise((r) => setTimeout(r, 800 * attempt));
+        // exponential backoff بدل زيادة خطية، عشان نديله وقت أكتر لو
+        // في تعارض متكرر (تحديثات كتير على نفس الفرع في نفس اللحظة)
+        await new Promise((r) => setTimeout(r, 600 * 2 ** (attempt - 1)));
         continue;
+      }
+      if (isConflict) {
+        throw new Error(
+          "الفرع اتغيّر من حد/رفعة تانية أثناء الرفع وحصل تعارض متكرر. جرب تاني بعد شوية."
+        );
       }
       throw e;
     }

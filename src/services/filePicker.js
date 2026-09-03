@@ -5,7 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 const { StorageAccessFramework } = FileSystem;
 
 // أي عملية بتاخد وقت أكتر من كده (بالميلي ثانية) بتتلغى تلقائي بدل ما تعلّق التطبيق للأبد
-const OP_TIMEOUT = 15000;
+const OP_TIMEOUT = 60000;
 
 function withTimeout(promise, label) {
   return Promise.race([
@@ -20,13 +20,42 @@ function withTimeout(promise, label) {
  * اختيار فولدر كامل من الجهاز (Android فقط) والمحافظة على شكله بالكامل
  * بيرجع array: [{ path: "relative/path/inside/folder.ext", base64: "..." }]
  */
+// بياخد آخر جزء حقيقي من اسم/مسار الملف بعد فك التشفير الكامل للرابط.
+// مهم: لازم نـ decode الرابط *كله* الأول، لأن الـ documentId بتاع SAF
+// بيكون فيه المسار النسبي كله مشفّر بـ %2F مكان "/". لو عملنا split قبل
+// الـ decode أو فكينا فك ناقص، بنطلع بالمسار الكامل بدل اسم العنصر بس -
+// وده اللي كان بيسبب تكرار المسار ("فولدر جوه فولدر").
+function lastSegment(uri) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(uri);
+  } catch (e) {
+    decoded = uri;
+  }
+  const parts = decoded.split("/");
+  return (parts[parts.length - 1] || "").split("?")[0];
+}
+
+// SAF (روابط content:// بتاعة أندرويد) مالهاش getInfoAsync موثوق لمعرفة
+// فولدر ولا ملف - كتير بيرجع النتيجة غلط فيتم تجاهل الفولدر بالكامل.
+// الطريقة المضمونة: نحاول نـ"سرد" الرابط كأنه فولدر؛ لو نجحت فعلاً فولدر
+// (حتى لو فاضي)، لو رمت error يبقى ملف عادي.
+async function tryListAsDirectory(uri) {
+  try {
+    const children = await StorageAccessFramework.readDirectoryAsync(uri);
+    return { isDirectory: true, children };
+  } catch (e) {
+    return { isDirectory: false, children: null };
+  }
+}
+
 export async function pickFolderRecursive(onProgress) {
   const perm = await StorageAccessFramework.requestDirectoryPermissionsAsync();
   if (!perm.granted) {
     throw new Error("مفيش صلاحية اختيار فولدر");
   }
   const rootUri = perm.directoryUri;
-  const rootName = decodeURIComponent(rootUri.split("/").pop());
+  const rootName = lastSegment(rootUri);
 
   const results = [];
   await walk(rootUri, rootName, results, onProgress);
@@ -44,23 +73,23 @@ async function walk(uri, relativePrefix, results, onProgress) {
   );
 
   for (const childUri of children) {
-    const name = decodeURIComponent(childUri.split("/").pop());
+    const name = lastSegment(childUri);
     const childRelativePath = `${relativePrefix}/${name}`;
 
-    let info;
+    // بنحدد فولدر ولا ملف عن طريق محاولة سرده كفولدر - مش عن طريق
+    // getInfoAsync اللي مش موثوق مع روابط SAF
+    let dirCheck;
     try {
-      // getInfoAsync بيرجع isDirectory مباشرة، من غير ما نحتاج نجرب ونغلط
-      info = await withTimeout(
-        FileSystem.getInfoAsync(childUri),
+      dirCheck = await withTimeout(
+        tryListAsDirectory(childUri),
         `فحص ${childRelativePath}`
       );
     } catch (e) {
-      // لو فشل الفحص لأي سبب، سيبه واستمر بدل ما نوقف كل الرفع
       console.warn(`اتخطى ${childRelativePath}: ${e.message}`);
       continue;
     }
 
-    if (info.isDirectory) {
+    if (dirCheck.isDirectory) {
       await walk(childUri, childRelativePath, results, onProgress);
     } else {
       try {

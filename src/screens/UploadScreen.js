@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ export default function UploadScreen({ route, navigation }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [commitMsg, setCommitMsg] = useState("");
+  const uploadLock = useRef(false);
 
   const joinPath = (p) => (targetPath ? `${targetPath}/${p}` : p);
 
@@ -63,10 +64,12 @@ export default function UploadScreen({ route, navigation }) {
   };
 
   const onUpload = async () => {
+    if (uploadLock.current) return;
     if (selectedFiles.length === 0) {
       Alert.alert("خطأ", "اختار فولدر أو ملفات الأول");
       return;
     }
+    uploadLock.current = true;
     setUploading(true);
     setProgress(0);
     try {
@@ -88,6 +91,7 @@ export default function UploadScreen({ route, navigation }) {
       Alert.alert("فشل الرفع", e.message);
     } finally {
       setUploading(false);
+      uploadLock.current = false;
     }
   };
 
