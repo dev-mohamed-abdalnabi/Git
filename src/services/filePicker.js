@@ -42,7 +42,10 @@ function lastSegment(uri) {
 // (حتى لو فاضي)، لو رمت error يبقى ملف عادي.
 async function tryListAsDirectory(uri) {
   try {
-    const children = await StorageAccessFramework.readDirectoryAsync(uri);
+    const children = await withTimeout(
+      StorageAccessFramework.readDirectoryAsync(uri),
+      "فحص العنصر"
+    );
     return { isDirectory: true, children };
   } catch (e) {
     return { isDirectory: false, children: null };

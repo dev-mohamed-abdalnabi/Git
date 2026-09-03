@@ -124,44 +124,22 @@ export async function deleteFile(token, owner, repo, path, message, branch, sha)
 }
 
 export async function deleteFolder(token, owner, repo, folderPath, message, branch) {
-  // GitHub Contents API can't delete a folder directly, so we delete every file
-  // inside it one by one (recursively) via the Git Trees API.
-  const { commitSha, treeSha } = await getBranchHeadTree(token, owner, repo, branch);
+  // GitHub لا يحذف الفولدر مباشرة. نجيب الملفات ثم نحذفها واحدًا واحدًا
+  // عبر Contents API؛ كل طلب يأخذ أحدث SHA ويعمل commit طبيعي، فلا يحدث
+  // خطأ "Update is not a fast forward" الناتج عن تحريك ref يدويًا.
+  const { treeSha } = await getBranchHeadTree(token, owner, repo, branch);
   const fullTree = await ghFetch(
     `${BASE}/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`,
     token
   );
-  const remaining = fullTree.tree.filter(
-    (item) => item.type === "blob" && !item.path.startsWith(folderPath + "/") && item.path !== folderPath
+  const files = fullTree.tree.filter(
+    (item) => item.type === "blob" && item.path.startsWith(folderPath.replace(/\/$/, "") + "/")
   );
-
-  const newTree = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/trees`, token, {
-    method: "POST",
-    body: JSON.stringify({
-      tree: remaining.map((item) => ({
-        path: item.path,
-        mode: item.mode,
-        type: item.type,
-        sha: item.sha,
-      })),
-    }),
-  });
-
-  const newCommit = await ghFetch(`${BASE}/repos/${owner}/${repo}/git/commits`, token, {
-    method: "POST",
-    body: JSON.stringify({
-      message,
-      tree: newTree.sha,
-      parents: [commitSha],
-    }),
-  });
-
-  await ghFetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`, token, {
-    method: "PATCH",
-    body: JSON.stringify({ sha: newCommit.sha, force: true }),
-  });
-
-  return newCommit;
+  if (files.length === 0) throw new Error("الفولدر فاضي أو اتغير قبل الحذف، اعمل تحديث وجرب تاني");
+  for (const file of files) {
+    await deleteFile(token, owner, repo, file.path, message, branch, file.sha);
+  }
+  return { deleted: files.length };
 }
 
 // ---------- Multi-file commit (preserves folder structure) ----------
