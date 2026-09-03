@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
 
       - name: Setup JDK
         uses: actions/setup-java@v4
@@ -25,17 +25,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Clean node_modules and Gradle cache
-        run: |
-          rm -rf node_modules
-          rm -rf ~/.gradle/caches
-          rm -rf ~/.gradle/wrapper
-
       - name: Install dependencies
-        run: npm install --no-optional
+        run: npm install
 
       - name: Expo prebuild (generate native android project)
-        run: npx expo prebuild --platform android --non-interactive --clean
+        run: npx expo prebuild --platform android --non-interactive
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
@@ -47,8 +41,7 @@ jobs:
       - name: Find APK
         id: findapk
         run: |
-          APK_PATH=$(find android/app/build/outputs -type f -name "*.apk" -print -quit)
-          test -n "$APK_PATH" || { echo "APK not found"; find android/app/build/outputs -type f | head -50; exit 1; }
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK as workflow artifact

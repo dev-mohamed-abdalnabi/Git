@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as FileSystem from "expo-file-system";
-import * as IntentLauncher from "expo-intent-launcher";
 import { Ionicons } from "@expo/vector-icons";
 
 const ROOT = `${FileSystem.documentDirectory ? "file:///storage/emulated/0" : "/storage/emulated/0"}`;
@@ -40,7 +39,7 @@ export default function FileBrowserScreen({ navigation, route }) {
     <View style={styles.safe}>
       <View style={styles.path}><Ionicons name="folder-open" size={18} color="#58a6ff" /><Text style={styles.pathText} numberOfLines={1}>{folder}</Text></View>
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.action} onPress={() => IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, { data: "package:com.devmohamed.gitmobile" })}>
+        <TouchableOpacity style={styles.action} onPress={() => Linking.openSettings()}>
           <Ionicons name="settings-outline" size={17} color="#c9d1d9" /><Text style={styles.actionText}>صلاحية الملفات</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.choose} onPress={choose}><Ionicons name="checkmark" size={18} color="#fff" /><Text style={styles.chooseText}>اختيار هذا الفولدر</Text></TouchableOpacity>
