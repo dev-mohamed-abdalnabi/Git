@@ -22,11 +22,18 @@ const theme = {
   },
 };
 
+const screenOptions = {
+  headerStyle: { backgroundColor: "#161b22" },
+  headerTintColor: "#c9d1d9",
+  headerTitleStyle: { fontWeight: "700" },
+  headerShadowVisible: false,
+};
+
 export default function RootNavigation() {
   return (
     <NavigationContainer theme={theme}>
-      <Stack.Navigator initialRouteName="Settings">
-        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: "GitMobile — الإعدادات" }} />
+      <Stack.Navigator initialRouteName="Settings" screenOptions={screenOptions}>
+        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: "GitMobile" }} />
         <Stack.Screen name="RepoSelect" component={RepoSelectScreen} options={{ title: "الريبوهات" }} />
         <Stack.Screen name="Explorer" component={ExplorerScreen} options={{ title: "استعراض الملفات" }} />
         <Stack.Screen name="Upload" component={UploadScreen} options={{ title: "رفع ملفات" }} />
