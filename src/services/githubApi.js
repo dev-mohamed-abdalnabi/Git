@@ -32,6 +32,7 @@ async function ghFetch(url, token, options = {}) {
     try {
       const body = await res.json();
       msg += `: ${body.message || JSON.stringify(body)}`;
+      if (body.errors) msg += ` (${JSON.stringify(body.errors)})`;
     } catch (e) {}
     throw new Error(msg);
   }

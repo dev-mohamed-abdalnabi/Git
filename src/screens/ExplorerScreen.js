@@ -33,6 +33,7 @@ export default function ExplorerScreen({ route, navigation }) {
   const [token, setToken] = useState("");
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [deletingPath, setDeletingPath] = useState(null);
 
   const load = useCallback(async (isRefresh) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -88,6 +89,7 @@ export default function ExplorerScreen({ route, navigation }) {
         style: "destructive",
         onPress: async () => {
           try {
+            setDeletingPath(item.path);
             if (item.type === "dir") {
               await deleteFolder(token, owner, repo, item.path, `Delete folder ${item.path}`, branch);
             } else {
@@ -96,6 +98,8 @@ export default function ExplorerScreen({ route, navigation }) {
             load(false);
           } catch (e) {
             Alert.alert("خطأ", e.message);
+          } finally {
+            setDeletingPath(null);
           }
         },
       },
@@ -190,8 +194,8 @@ export default function ExplorerScreen({ route, navigation }) {
                     <Ionicons name="chevron-forward" size={16} color="#484f58" />
                   )}
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => onDelete(item)} style={styles.deleteBtn}>
-                  <Ionicons name="trash-outline" size={17} color="#f85149" />
+                <TouchableOpacity onPress={() => onDelete(item)} style={styles.deleteBtn} disabled={deletingPath !== null}>
+                  {deletingPath === item.path ? <ActivityIndicator size="small" color="#f85149" /> : <Ionicons name="trash-outline" size={17} color="#f85149" />}
                 </TouchableOpacity>
               </View>
             );

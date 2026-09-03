@@ -6,6 +6,7 @@ const { StorageAccessFramework } = FileSystem;
 
 // أي عملية بتاخد وقت أكتر من كده (بالميلي ثانية) بتتلغى تلقائي بدل ما تعلّق التطبيق للأبد
 const OP_TIMEOUT = 60000;
+const DIRECTORY_TIMEOUT = 2500;
 
 function withTimeout(promise, label) {
   return Promise.race([
@@ -42,12 +43,21 @@ function lastSegment(uri) {
 // (حتى لو فاضي)، لو رمت error يبقى ملف عادي.
 async function tryListAsDirectory(uri) {
   try {
+    const info = await withTimeout(FileSystem.getInfoAsync(uri), DIRECTORY_TIMEOUT);
+    if (typeof info.isDirectory === "boolean") {
+      return { isDirectory: info.isDirectory, children: null };
+    }
+  } catch (e) {
+    // بعض مزوّدي SAF لا يرجعون isDirectory؛ نستخدم السرد كحل بديل.
+  }
+  try {
     const children = await withTimeout(
       StorageAccessFramework.readDirectoryAsync(uri),
-      "فحص العنصر"
+      `فحص العنصر خلال ${DIRECTORY_TIMEOUT}ms`
     );
     return { isDirectory: true, children };
   } catch (e) {
+    if (e.message && e.message.startsWith("Timeout:")) throw e;
     return { isDirectory: false, children: null };
   }
 }
@@ -88,6 +98,9 @@ async function walk(uri, relativePrefix, results, onProgress) {
         `فحص ${childRelativePath}`
       );
     } catch (e) {
+      if (e.message && e.message.startsWith("Timeout:")) {
+        console.warn(`اتخطى عنصر عالق: ${childRelativePath}`);
+      }
       console.warn(`اتخطى ${childRelativePath}: ${e.message}`);
       continue;
     }
