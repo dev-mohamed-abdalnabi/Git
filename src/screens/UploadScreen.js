@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import * as IntentLauncher from "expo-intent-launcher";
 import { loadSettings } from "../services/storage";
 import { commitMultipleFiles } from "../services/githubApi";
 import { pickFolderRecursiveFromUri, pickMultipleFiles } from "../services/filePicker";
@@ -133,10 +132,7 @@ export default function UploadScreen({ route, navigation }) {
             title="السماح بإدارة كل الملفات"
             icon="settings-outline"
             variant="secondary"
-            onPress={() => IntentLauncher.startActivityAsync(
-              IntentLauncher.ActivityAction.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-              { data: "package:com.devmohamed.gitmobile" }
-            )}
+            onPress={() => Linking.openSettings()}
             disabled={pickerBusy || uploading}
           />
         )}
