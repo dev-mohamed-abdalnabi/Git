@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,14 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as IntentLauncher from "expo-intent-launcher";
 import { loadSettings } from "../services/storage";
 import { commitMultipleFiles } from "../services/githubApi";
-import { pickFolderRecursive, pickMultipleFiles } from "../services/filePicker";
+import { pickFolderRecursiveFromUri, pickMultipleFiles } from "../services/filePicker";
 import { getFileIcon } from "../utils/fileIcons";
 import Btn from "../components/Btn";
 
@@ -27,6 +29,18 @@ export default function UploadScreen({ route, navigation }) {
   const [commitMsg, setCommitMsg] = useState("");
   const uploadLock = useRef(false);
 
+  useEffect(() => {
+    const uri = route.params?.selectedFolderUri;
+    if (!uri) return;
+    navigation.setParams({ selectedFolderUri: undefined });
+    setPickerBusy(true);
+    setPickerStatus("جاري قراءة الفولدر...");
+    pickFolderRecursiveFromUri(uri, (count) => setPickerStatus(`اتقرا ${count} ملف...`))
+      .then((files) => { setSelectedFiles(files); setPickerStatus(`جاهز: ${files.length} ملف من الفولدر`); })
+      .catch((e) => Alert.alert("تعذر قراءة الفولدر", e.message))
+      .finally(() => setPickerBusy(false));
+  }, [route.params?.selectedFolderUri]);
+
   const joinPath = (p) => (targetPath ? `${targetPath}/${p}` : p);
 
   const onPickFolder = async () => {
@@ -34,18 +48,7 @@ export default function UploadScreen({ route, navigation }) {
       Alert.alert("تنبيه", "اختيار فولدر كامل متاح على Android بس دلوقتي");
       return;
     }
-    setPickerBusy(true);
-    setPickerStatus("جاري قراءة الفولدر...");
-    try {
-      const files = await pickFolderRecursive((count) => setPickerStatus(`اتقرا ${count} ملف لحد دلوقتي...`));
-      setSelectedFiles(files);
-      setPickerStatus(`جاهز: ${files.length} ملف من فولدر كامل`);
-    } catch (e) {
-      Alert.alert("خطأ", e.message);
-      setPickerStatus("");
-    } finally {
-      setPickerBusy(false);
-    }
+    navigation.navigate("FileBrowser", { startPath: "file:///storage/emulated/0" });
   };
 
   const onPickFiles = async () => {
@@ -124,6 +127,19 @@ export default function UploadScreen({ route, navigation }) {
             <Btn title="ملفات متعددة" icon="documents-outline" onPress={onPickFiles} disabled={pickerBusy || uploading} variant="secondary" />
           </View>
         </View>
+
+        {Platform.OS === "android" && (
+          <Btn
+            title="السماح بإدارة كل الملفات"
+            icon="settings-outline"
+            variant="secondary"
+            onPress={() => IntentLauncher.startActivityAsync(
+              IntentLauncher.ActivityAction.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+              { data: "package:com.devmohamed.gitmobile" }
+            )}
+            disabled={pickerBusy || uploading}
+          />
+        )}
 
         {pickerStatus ? (
           <View style={styles.statusRow}>
